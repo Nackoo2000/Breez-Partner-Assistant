@@ -105,6 +105,7 @@ app.event('message', async ({ event }) => {
       if (!card) return;  // thread on something that isn't a bot routing card
 
       handleLaneB({ event, card }).catch(err => console.error('[laneB] error:', err.message));
+
       return;
     }
 
@@ -150,8 +151,18 @@ app.event('message', async ({ event }) => {
     }
 
     const rawLink = buildMessageLink(event.channel, event.ts, event.thread_ts || null);
-    const suggestedName = analysis.suggestedPerson || 'Ivan';
+    const rawSuggestedName = analysis.suggestedPerson || 'Ivan';
+
+    // Evaluate verifier triggers early — OOO reroute may swap the suggested
+    // person before cooldown check and logging.
+    const trigger = evaluateTriggers({ classification: analysis, partnerName });
+
+    // OOO silent reroute: known cover exists → swap person, note it on the card.
+    const suggestedName = trigger.reroute || rawSuggestedName;
     const suggestedId = TEAM_ID_BY_NAME[suggestedName];
+    const effectiveSummary = trigger.reroute
+      ? `${analysis.summary}\n_${rawSuggestedName} is OOO — routing to ${suggestedName} to cover._`
+      : analysis.summary;
 
     if (!await tryClaimCooldown(event.channel, suggestedName)) {
       console.log(`[slack] ${partnerName}: ${suggestedName} already pinged in last 5 min — skipping`);
@@ -162,13 +173,13 @@ app.event('message', async ({ event }) => {
       channelId: event.channel,
       partnerName,
       suggestedPerson: suggestedName,
-      summary: analysis.summary,
+      summary: effectiveSummary,
       partnerMessageLink: rawLink,
     }).catch(() => null);
 
     const { blocks, color } = buildNotificationBlocks({
       partnerName,
-      summary: analysis.summary,
+      summary: effectiveSummary,
       suggestedName,
       suggestedId,
       messageLink: rawLink,
@@ -177,14 +188,6 @@ app.event('message', async ({ event }) => {
     });
 
     // ── Verifier escalation ─────────────────────────────────────────────
-    // Evaluate the 4 triggers (OOO / low_conf / close_alt / unknown_partner).
-    // If any hit, append a verifier block to the card and schedule number
-    // reactions so Roy (or anyone) can resolve by clicking. Daily cap enforced
-    // inside evaluateTriggers() — overflow routes normally.
-    const trigger = evaluateTriggers({
-      classification: analysis,
-      partnerName,
-    });
     const cardBlocks = trigger.escalate
       ? [...blocks, ...buildVerifierBlocks({ reason: trigger.reason, options: trigger.options })]
       : blocks;
@@ -359,7 +362,7 @@ app.event('app_mention', async ({ event }) => {
       console.log(`[laneA] non-team mention from ${event.user} — ignored`);
       return;
     }
-    const cleanText = stripBotMention(event.text);
+    const cleanText = normalizeSlackMentions(stripBotMention(event.text), TEAM);
     if (!cleanText) return;
 
     const senderName = TEAM[event.user]?.name || await getUserName(client, event.user);
@@ -395,7 +398,7 @@ app.event('app_mention', async ({ event }) => {
 // parent is a bot routing card and the sender is on the team.
 async function handleLaneB({ event, card }) {
   const senderName = TEAM[event.user]?.name || await getUserName(client, event.user);
-  const cleanText = stripBotMention(event.text);
+  const cleanText = normalizeSlackMentions(stripBotMention(event.text), TEAM);
   if (!cleanText) return;
 
   const cardContext = {
@@ -478,6 +481,16 @@ app.event('reaction_added', async ({ event }) => {
             maybeRunIncrementalLearner(client).catch(() => {});
           }
           console.log(`[verifier] card ${card.id} resolved by ${reactorName} -> ${result.person || '(thread-reply)'} (${result.action})`);
+
+          // Confirm the resolution in the thread so the team sees what was decided.
+          const confirmText =
+            result.action === 'verifier_confirmed'   ? `Routing to *${result.person}* — confirmed by ${reactorName}.` :
+            result.action === 'verifier_corrected'   ? `Reassigned to *${result.person}* — ${reactorName}'s pick.` :
+            result.action === 'pending_thread_reply' ? `Got it — drop a name in the thread.` :
+            null;
+          if (confirmText) {
+            postThreadReply(client, event.item.channel, event.item.ts, confirmText).catch(() => {});
+          }
         }
         return;
       }
@@ -563,6 +576,17 @@ function parseSlackTeamMention(text, team) {
     if (team[userId]) return team[userId].name;
   }
   return null;
+}
+
+// Convert raw Slack mention tokens to plain names before LLM calls.
+// <@U0853N6R0TA|Daniel Granh­ão> → @Daniel (known team member)
+// <@UUNKNOWN|Bob Tester>         → Bob (first word of display name)
+function normalizeSlackMentions(text, team) {
+  return text.replace(/<@([A-Z0-9]+)(?:\|([^>]+))?>/g, (_, userId, displayName) => {
+    if (team[userId]) return `@${team[userId].name}`;
+    if (displayName) return displayName.split(' ')[0];
+    return '';
+  });
 }
 
 // ─── Heartbeat ─────────────────────────────────────────────────────────────

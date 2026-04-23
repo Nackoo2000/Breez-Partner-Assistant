@@ -1,0 +1,22 @@
+{
+  "name": "breez-partner-assistant",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Slack + Telegram routing bot for partner support. Single Node.js process, SQLite, Socket Mode + long polling.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "preflight": "node scripts/preflight.js",
+    "learner:run-now": "node scripts/run-learner-job.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@slack/bolt": "^4.2.0",
+    "better-sqlite3": "^11.5.0",
+    "dotenv": "^16.4.5"
+  }
+}

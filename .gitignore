@@ -1,0 +1,36 @@
+# Secrets / local config
+.env
+.env.*
+.env*.local
+.env.production
+
+# Claude Code local state (may contain secrets baked into approved commands)
+.claude/
+
+# Deploy tooling
+.vercel/
+
+# Node
+node_modules/
+
+# Runtime data (SQLite DB, learned routing rules, archive)
+data/
+
+# Local backups pulled from the VPS
+backups/
+
+# Optional private team-identifier config (see Phase 0 of ops plan)
+config.private.js
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
+.env*.local
+
+# Transient audit artefacts (calibrate-routing-assignments GitHub dumps, etc.)
+.tmp_audit/
+tmp_vps_src/

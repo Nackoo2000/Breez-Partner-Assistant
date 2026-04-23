@@ -209,7 +209,7 @@ app.event('message', async ({ event }) => {
         });
         // Seed number reactions for one-click resolution
         for (const name of seedReactionEmojis(trigger.options)) {
-          addReaction(client, ASSISTANT_CHANNEL_ID, postResult.ts, name).catch(() => {});
+          await addReaction(client, ASSISTANT_CHANNEL_ID, postResult.ts, name).catch(() => {});
         }
         console.log(`[verifier] card ${routingId} escalated — reason=${trigger.reason} options=${trigger.options.length}`);
       }
